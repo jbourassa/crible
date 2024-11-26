@@ -186,71 +186,43 @@ impl Hand {
             .filter(|(c1, c2)| c1.number == c2.number)
             .count() as u8;
 
-        #[derive(Clone, Debug)]
-        struct Straight {
-            length: u8,
-            tail: u8,
-            pairs: u8,
-            triplet: u8,
-            in_pair: bool,
+        let mut numbers = [0u8; 13];
+        for card in cards5.iter() {
+            numbers[card.number as usize] += 1;
         }
 
-        impl Straight {
-            fn empty(card: Card) -> Self {
-                Self {
-                    length: 1,
-                    tail: card.number as u8,
-                    pairs: 0,
-                    triplet: 0,
-                    in_pair: false,
-                }
-            }
-
-            fn reset(&mut self, card: Card) {
-                *self = Self::empty(card)
-            }
-
-            fn score(cards5: [Card; 5]) -> u8 {
-                let mut straight = Straight::empty(cards5[0]);
-                dbg!(straight.clone());
-
-                for card in cards5.iter().copied().skip(1) {
-                    let card_n = card.number as u8;
-                    if card_n == straight.tail + 1 {
-                        straight.length += 1;
-                        straight.tail = card_n;
-                        dbg!(straight.length);
-                    } else if card_n == straight.tail {
-                        if straight.in_pair {
-                            straight.in_pair = false;
-                            straight.pairs -= 1;
-                            straight.triplet = 1;
-                        } else {
-                            straight.in_pair = true;
-                            straight.pairs += 1;
-                        }
-                    } else if straight.length >= 3 {
-                        // We found a straight, we can stop
-                        break;
-                    } else {
-                        straight.reset(card);
-                    }
-                }
-
-                dbg!(straight.clone());
-
-                if straight.length >= 3 {
-                    straight.length
-                        * (straight.pairs * 2).max(1)
-                        * (straight.triplet * 3).max(1) as u8
-                } else {
-                    0
-                }
+        let mut range = 0..0;
+        for (i, _) in numbers
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, count)| *count > 0)
+        {
+            if i == range.end + 1 {
+                range.end = i;
+            } else if range.end - range.start >= 2 {
+                break;
+            } else {
+                range = i..i;
             }
         }
 
-        // dbg!(straight_len);
-        suit_points + fifteens * 2 + pairs * 2 + Straight::score(cards5)
+        let straight_size = (range.end - range.start) as u8 + 1;
+        let straight_score = if straight_size >= 3 {
+            straight_size
+                * numbers[range.start..=range.end]
+                    .iter()
+                    .fold(1, |memo, count| memo * *count)
+        } else {
+            0
+        };
+
+        let knob_score = cards4
+            .iter()
+            .any(|card| card.number == Number::J && card.suit == starter.suit)
+            as u8;
+
+        suit_points + fifteens * 2 + pairs * 2 + straight_score + knob_score
     }
 }
 
