@@ -1,0 +1,10 @@
+[package]
+name = "crible-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+itertools = { workspace = true }
+rand = { workspace = true }
+crible-core = { path = "../crible-core" }

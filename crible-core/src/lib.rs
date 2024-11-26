@@ -2,19 +2,19 @@ use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::collections::BTreeSet;
 use std::fmt::Display;
+use strum::VariantArray;
 
-struct Deck {
+pub struct Deck {
     cards: Vec<Card>,
 }
 
 impl Deck {
-    fn new_shuffled() -> Self {
-        let mut cards = Vec::with_capacity(Suit::all().len() * Number::all().len());
-        for suit in Suit::all() {
-            for number in Number::all() {
-                cards.push(Card { suit, number })
+    pub fn new_shuffled() -> Self {
+        let mut cards = Vec::with_capacity(Suit::VARIANTS.len() * Number::VARIANTS.len());
+        for suit in Suit::VARIANTS.iter() {
+            for number in Number::VARIANTS.iter() {
+                cards.push(Card::new(*number, *suit))
             }
         }
         cards.shuffle(&mut thread_rng());
@@ -22,33 +22,30 @@ impl Deck {
         Self { cards }
     }
 
-    fn remove(&mut self, to_remove: &[Card]) {
+    pub fn cards(&self) -> impl ExactSizeIterator<Item = &Card> {
+        self.cards.iter()
+    }
+
+    pub fn remove(&mut self, to_remove: &[Card]) {
         self.cards.retain(|card| !to_remove.contains(card))
     }
 
-    fn draw(&mut self) -> Card {
+    pub fn draw(&mut self) -> Card {
         self.cards.pop().unwrap()
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Suit {
+#[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
+pub enum Suit {
     H,
     D,
     S,
     C,
 }
 
-impl Suit {
-    pub fn all() -> impl ExactSizeIterator<Item = Suit> {
-        const SUITS: &[Suit] = &[Suit::H, Suit::D, Suit::S, Suit::C];
-        SUITS.iter().copied()
-    }
-}
-
 // Card value represented as an enum (to avoid bound checks, hopefully)
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Number {
+#[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
+pub enum Number {
     A,
     C2,
     C3,
@@ -65,25 +62,6 @@ enum Number {
 }
 
 impl Number {
-    pub fn all() -> impl ExactSizeIterator<Item = Number> {
-        const NUMBERS: &[Number] = &[
-            Number::A,
-            Number::C2,
-            Number::C3,
-            Number::C4,
-            Number::C5,
-            Number::C6,
-            Number::C7,
-            Number::C8,
-            Number::C9,
-            Number::T,
-            Number::J,
-            Number::Q,
-            Number::K,
-        ];
-        NUMBERS.iter().copied()
-    }
-
     /// Return the numerical value a value between 1 and 10
     pub fn value(&self) -> u8 {
         const VALUES: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10];
@@ -112,7 +90,7 @@ impl Display for Number {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct Card {
+pub struct Card {
     number: Number,
     suit: Suit,
 }
@@ -150,17 +128,29 @@ impl Ord for Card {
 }
 
 #[derive(PartialEq, Eq)]
-struct Hand {
+pub struct Hand {
     cards: [Card; 4],
 }
 
 impl Hand {
-    fn score(&self, starter: Card, crib: bool) -> u8 {
+    pub fn from_array(cards: [Card; 4]) -> Self {
+        Self { cards }
+    }
+
+    pub fn from_slice(slice: &[Card]) -> Result<Self> {
+        Ok(Self {
+            cards: slice
+                .try_into()
+                .map_err(|_| anyhow!("4 card expected, {} given", slice.len()))?,
+        })
+    }
+
+    pub fn score(&self, starter: Card, crib: bool) -> u8 {
         let cards4 = &self.cards;
         let mut cards5: [Card; 5] = [cards4[0], cards4[1], cards4[2], cards4[3], starter];
         cards5.sort();
 
-        let same_suit = cards4[1..=3].iter().all(|c| c.suit == cards4[0].suit);
+        let same_suit = cards4[1..].iter().all(|c| c.suit == cards4[0].suit);
         let suit_points: u8 = if same_suit {
             if cards4[0].suit == starter.suit {
                 5
@@ -173,11 +163,31 @@ impl Hand {
             0
         };
 
-        let fifteens = cards5
+        let mut fifteens = 0;
+        fifteens += cards5
             .iter()
-            .powerset()
-            .filter(|set| set.iter().map(|c| c.value()).sum::<u8>() == 15)
+            .copied()
+            .tuple_combinations()
+            .filter(|(c1, c2)| c1.value() + c2.value() == 15)
             .count() as u8;
+
+        fifteens += cards5
+            .iter()
+            .copied()
+            .tuple_combinations()
+            .filter(|(c1, c2, c3)| c1.value() + c2.value() + c3.value() == 15)
+            .count() as u8;
+
+        fifteens += cards5
+            .iter()
+            .copied()
+            .tuple_combinations()
+            .filter(|(c1, c2, c3, c4)| c1.value() + c2.value() + c3.value() + c4.value() == 15)
+            .count() as u8;
+
+        if cards5.iter().map(Card::value).sum::<u8>() == 15 {
+            fifteens += 1;
+        }
 
         let pairs = cards5
             .iter()
@@ -186,41 +196,37 @@ impl Hand {
             .filter(|(c1, c2)| c1.number == c2.number)
             .count() as u8;
 
-        let mut numbers = [0u8; 13];
-        for card in cards5.iter() {
-            numbers[card.number as usize] += 1;
-        }
+        let mut range = cards5[0].number as usize..cards5[0].number as usize;
+        for (c1, c2) in cards5.iter().copied().tuple_windows() {
+            let new_end = c2.number as usize;
 
-        let mut range = 0..0;
-        for (i, _) in numbers
-            .iter()
-            .copied()
-            .enumerate()
-            .filter(|(_, count)| *count > 0)
-        {
-            if i == range.end + 1 {
-                range.end = i;
+            if c1.number as u8 + 1 >= c2.number as u8 {
+                range.end = new_end;
             } else if range.end - range.start >= 2 {
                 break;
             } else {
-                range = i..i;
+                range = new_end..new_end
             }
         }
 
         let straight_size = (range.end - range.start) as u8 + 1;
         let straight_score = if straight_size >= 3 {
+            let mut count_by_numbers = [0u8; 13];
+            for card in cards5.iter() {
+                count_by_numbers[card.number as usize] += 1;
+            }
+
             straight_size
-                * numbers[range.start..=range.end]
+                * count_by_numbers[range.start..=range.end]
                     .iter()
-                    .fold(1, |memo, count| memo * *count)
+                    .copied()
+                    .fold(1, |memo, count| memo * count)
         } else {
             0
         };
 
-        let knob_score = cards4
-            .iter()
-            .any(|card| card.number == Number::J && card.suit == starter.suit)
-            as u8;
+        let knob = Card::new(Number::J, starter.suit);
+        let knob_score = cards4.iter().contains(&knob) as u8;
 
         suit_points + fifteens * 2 + pairs * 2 + straight_score + knob_score
     }
@@ -237,7 +243,7 @@ impl Display for Suit {
     }
 }
 
-fn parse_cards(input: &str) -> Result<Vec<Card>> {
+pub fn parse_cards(input: &str) -> Result<Vec<Card>> {
     let mut iter = input.chars();
     let mut cards: Vec<Card> = Vec::with_capacity(6);
 
@@ -305,34 +311,6 @@ impl TryInto<Suit> for char {
     }
 }
 
-fn main() -> Result<()> {
-    let mut deck = Deck::new_shuffled();
-    let s = BTreeSet::<Card>::new();
-
-    let cards = parse_cards("5d Td Qd Jd")?;
-    deck.remove(&cards);
-
-    let mut results: Vec<(Hand, [Option<(Card, u8)>; 48])> = Vec::new();
-
-    // All possible combinaisons of 4 cards
-    for (c1, c2, c3, c4) in cards.iter().copied().tuple_combinations() {
-        let hand = Hand {
-            cards: [c1, c2, c3, c4],
-        };
-
-        let mut entries: [Option<(Card, u8)>; 48] = [None; 48];
-
-        for (i, starter) in deck.cards.iter().copied().enumerate() {
-            let score = hand.score(starter, false);
-            entries[i] = Some((starter, score));
-        }
-
-        results.push((hand, entries))
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,28 +367,27 @@ mod tests {
 
     #[test]
     fn card_value() {
-        fn card_value(number: Number) -> u8 {
+        fn value_for(number: Number) -> u8 {
             Card::new(number, Suit::C).value()
         }
 
-        assert_eq!(1, card_value(Number::A));
-        assert_eq!(2, card_value(Number::C2));
-        assert_eq!(3, card_value(Number::C3));
-        assert_eq!(4, card_value(Number::C4));
-        assert_eq!(5, card_value(Number::C5));
-        assert_eq!(6, card_value(Number::C6));
-        assert_eq!(7, card_value(Number::C7));
-        assert_eq!(8, card_value(Number::C8));
-        assert_eq!(9, card_value(Number::C9));
-        assert_eq!(10, card_value(Number::T));
-        assert_eq!(10, card_value(Number::J));
-        assert_eq!(10, card_value(Number::Q));
-        assert_eq!(10, card_value(Number::K));
+        assert_eq!(1, value_for(Number::A));
+        assert_eq!(2, value_for(Number::C2));
+        assert_eq!(3, value_for(Number::C3));
+        assert_eq!(4, value_for(Number::C4));
+        assert_eq!(5, value_for(Number::C5));
+        assert_eq!(6, value_for(Number::C6));
+        assert_eq!(7, value_for(Number::C7));
+        assert_eq!(8, value_for(Number::C8));
+        assert_eq!(9, value_for(Number::C9));
+        assert_eq!(10, value_for(Number::T));
+        assert_eq!(10, value_for(Number::J));
+        assert_eq!(10, value_for(Number::Q));
+        assert_eq!(10, value_for(Number::K));
     }
 
     #[test]
     fn score_tests() -> Result<()> {
-        /*
         // Fifteen 6
         assert_eq!(6, score_hand("2d Js Ks 5h", "Th")?);
 
@@ -420,7 +397,6 @@ mod tests {
         assert_eq!(5, score_hand("2s 4s Qs Ks", "Ts")?);
         // Crib all spade: no good
         assert_eq!(0, score_crib("2s 4s Qs Ks", "Th")?);
-
         // Crib + starter all spade
         assert_eq!(5, score_crib("2s 4s Qs Ks", "Ts")?);
 
@@ -434,7 +410,6 @@ mod tests {
         // 4 of a kind
         assert_eq!(12, score_hand("2s 2h 2d 2c", "3h")?);
         assert_eq!(12, score_hand("2s 2h 2d 3h", "2c")?);
-        */
 
         // 3 straight
         assert_eq!(3, score_hand("1s Th Jd Qc", "8h")?);
@@ -442,11 +417,20 @@ mod tests {
         // 4 straight
         assert_eq!(4, score_hand("1s Th Jd Qc", "Kh")?);
 
+        // 5 straight
+        assert_eq!(5, score_hand("9s Th Jd Qc", "Kh")?);
+
         // 2x 3 straight
         assert_eq!(8, score_hand("1s Th Jd Qc", "Qh")?);
 
+        // 9x 3 straight
+        assert_eq!(15, score_hand("Qs Th Jd Qc", "Qh")?);
+
         // 4x 3 straight
         assert_eq!(16, score_hand("Th Ts Jd Qc", "Qh")?);
+
+        // Not-straight of 2, starting from 2 (tests for improperly starting straight at Ace (0))
+        assert_eq!(2, score_hand("2h 3s 9d 8c", "Qh")?);
 
         // Knob
         assert_eq!(1, score_hand("1s 6h 7d Jc", "Qc")?);

@@ -1,9 +1,8 @@
-[package]
-name = "crible"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = ["crible-core", "crible-cli"]
+resolver = "2"
 
-[dependencies]
+[workspace.dependencies]
 anyhow = "1.0.93"
 itertools = "0.13.0"
 rand = "0.8.5"
