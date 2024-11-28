@@ -160,9 +160,18 @@ impl Hand {
         let mut cards5: [Card; 5] = [cards4[0], cards4[1], cards4[2], cards4[3], starter];
         cards5.sort();
 
-        let same_suit = cards4[1..].iter().all(|c| c.suit == cards4[0].suit);
-        let suit_points: u8 = if same_suit {
-            if cards4[0].suit == starter.suit {
+        self.score_suit(starter, crib)
+            + self.score_fifteens(&cards5)
+            + self.score_pairs(&cards5)
+            + self.score_straights(&cards5)
+            + self.score_knob(starter)
+    }
+
+    fn score_suit(&self, starter: Card, crib: bool) -> u8 {
+        let same_suit = self.cards[1..].iter().all(|c| c.suit == self.cards[0].suit);
+
+        if same_suit {
+            if self.cards[0].suit == starter.suit {
                 5
             } else if !crib {
                 4
@@ -171,41 +180,59 @@ impl Hand {
             }
         } else {
             0
-        };
+        }
+    }
 
+    fn score_fifteens(&self, cards5: &[Card; 5]) -> u8 {
         let mut fifteens = 0;
-        fifteens += cards5
-            .iter()
-            .copied()
-            .tuple_combinations()
-            .filter(|(c1, c2)| c1.value() + c2.value() == 15)
-            .count() as u8;
 
-        fifteens += cards5
-            .iter()
-            .copied()
-            .tuple_combinations()
-            .filter(|(c1, c2, c3)| c1.value() + c2.value() + c3.value() == 15)
-            .count() as u8;
-
-        fifteens += cards5
-            .iter()
-            .copied()
-            .tuple_combinations()
-            .filter(|(c1, c2, c3, c4)| c1.value() + c2.value() + c3.value() + c4.value() == 15)
-            .count() as u8;
+        for i in 0..cards5.len() {
+            for j in i + 1..cards5.len() {
+                if cards5[i].value() + cards5[j].value() == 15 {
+                    fifteens += 1
+                }
+                for k in j + 1..cards5.len() {
+                    // triple
+                    if cards5[i].value() + cards5[j].value() + cards5[k].value() == 15 {
+                        fifteens += 1
+                    }
+                    for l in k + 1..cards5.len() {
+                        // 4 cards
+                        if cards5[i].value()
+                            + cards5[j].value()
+                            + cards5[k].value()
+                            + cards5[l].value()
+                            == 15
+                        {
+                            fifteens += 1;
+                        }
+                    }
+                }
+            }
+        }
 
         if cards5.iter().map(Card::value).sum::<u8>() == 15 {
             fifteens += 1;
         }
 
-        let pairs = cards5
-            .iter()
-            .copied()
-            .tuple_combinations()
-            .filter(|(c1, c2)| c1.number == c2.number)
-            .count() as u8;
+        fifteens * 2
+    }
 
+    fn score_pairs(&self, cards5: &[Card; 5]) -> u8 {
+        let mut pairs = 0u8;
+
+        for i in 0..cards5.len() {
+            for j in i + 1..cards5.len() {
+                if cards5[i].number == cards5[j].number {
+                    pairs += 1
+                }
+            }
+        }
+
+        pairs * 2
+    }
+
+    fn score_straights(&self, cards5: &[Card; 5]) -> u8 {
         let mut range = cards5[0].number as usize..cards5[0].number as usize;
         for (c1, c2) in cards5.iter().copied().tuple_windows() {
             let new_end = c2.number as usize;
@@ -220,7 +247,7 @@ impl Hand {
         }
 
         let straight_size = (range.end - range.start) as u8 + 1;
-        let straight_score = if straight_size >= 3 {
+        if straight_size >= 3 {
             let mut count_by_numbers = [0u8; 13];
             for card in cards5.iter() {
                 count_by_numbers[card.number as usize] += 1;
@@ -233,12 +260,12 @@ impl Hand {
                     .fold(1, |memo, count| memo * count)
         } else {
             0
-        };
+        }
+    }
 
+    pub fn score_knob(&self, starter: Card) -> u8 {
         let knob = Card::new(Number::J, starter.suit);
-        let knob_score = cards4.iter().contains(&knob) as u8;
-
-        suit_points + fifteens * 2 + pairs * 2 + straight_score + knob_score
+        self.cards.iter().contains(&knob) as u8
     }
 }
 
@@ -407,6 +434,12 @@ mod tests {
     fn score_tests() -> Result<()> {
         // Fifteen 6
         assert_eq!(6, score_hand("2d Js Ks 5h", "Th")?);
+        // Fifteen with 3 cards
+        assert_eq!(2, score_hand("1d 2s 6s 8h", "Th")?);
+        // Fifteen with 4 cards (+1 pair)
+        assert_eq!(4, score_hand("1d 1s 3d 5h ", "8h")?);
+        // Fifteen with 5 cards (+ 5 for straight)
+        assert_eq!(7, score_hand("1d 2s 3s 4h", "5h")?);
 
         // Hand all spade
         assert_eq!(4, score_hand("2s 4s Qs Ks", "Th")?);
