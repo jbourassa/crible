@@ -22,12 +22,22 @@ impl Deck {
         Self { cards }
     }
 
+    pub fn shuffle(&mut self) {
+        self.cards.shuffle(&mut thread_rng());
+    }
+
     pub fn cards(&self) -> impl ExactSizeIterator<Item = &Card> {
         self.cards.iter()
     }
 
     pub fn remove(&mut self, to_remove: &[Card]) {
         self.cards.retain(|card| !to_remove.contains(card))
+    }
+
+    pub fn draw_hand(&mut self) -> Result<Hand> {
+        let len = self.cards.len();
+        Hand::from_slice(self.cards.drain(len - 4..).as_slice())
+            .map_err(|_| anyhow!("expected 4+ cards in the deck"))
     }
 
     pub fn draw(&mut self) -> Card {
@@ -229,6 +239,13 @@ impl Hand {
         let knob_score = cards4.iter().contains(&knob) as u8;
 
         suit_points + fifteens * 2 + pairs * 2 + straight_score + knob_score
+    }
+}
+
+impl Display for Hand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let c = self.cards;
+        write!(f, "{} {} {} {}", c[0], c[1], c[2], c[3])
     }
 }
 
