@@ -188,22 +188,21 @@ impl Hand {
 
         for i in 0..cards5.len() {
             for j in i + 1..cards5.len() {
-                if cards5[i].value() + cards5[j].value() == 15 {
+                let sum2 = cards5[i].value() + cards5[j].value();
+                if sum2 == 15 {
                     fifteens += 1
                 }
+
                 for k in j + 1..cards5.len() {
-                    // triple
-                    if cards5[i].value() + cards5[j].value() + cards5[k].value() == 15 {
+                    let sum3 = sum2 + cards5[k].value();
+                    if sum3 == 15 {
                         fifteens += 1
                     }
+
                     for l in k + 1..cards5.len() {
+                        let sum4 = sum3 + cards5[l].value();
                         // 4 cards
-                        if cards5[i].value()
-                            + cards5[j].value()
-                            + cards5[k].value()
-                            + cards5[l].value()
-                            == 15
-                        {
+                        if sum4 == 15 {
                             fifteens += 1;
                         }
                     }
