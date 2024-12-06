@@ -46,6 +46,7 @@ impl Deck {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
+#[repr(u8)]
 pub enum Suit {
     H,
     D,
@@ -55,6 +56,7 @@ pub enum Suit {
 
 // Card value represented as an enum (to avoid bound checks, hopefully)
 #[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
+#[repr(u8)]
 pub enum Number {
     A,
     C2,
@@ -101,23 +103,36 @@ impl Display for Number {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Card {
-    number: Number,
-    suit: Suit,
+    // Bit-packed Number and Suit. 4 high bits are number, lower 4 bits are suit.
+    inner: u8,
 }
 
 impl Card {
     pub fn new(number: Number, suit: Suit) -> Self {
-        Self { number, suit }
+        let inner = (number as u8) << 4 | (suit as u8);
+        Self { inner }
+    }
+
+    pub fn number(&self) -> Number {
+        // SAFETY: inner can only be constructed from a Number casted as u8 in the upper 4 bits;
+        // so it's safe to extract it.
+        unsafe { std::mem::transmute(self.inner >> 4) }
+    }
+
+    pub fn suit(&self) -> Suit {
+        // SAFETY: inner can only be constructed from a Suit casted as u8 in the lower 4 bits,
+        // so it's safe to extract it.
+        unsafe { std::mem::transmute(self.inner & 0x0F) }
     }
 
     pub fn value(&self) -> u8 {
-        self.number.value()
+        self.number().value()
     }
 }
 
 impl Display for Card {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.number, self.suit)
+        write!(f, "{}{}", self.number(), self.suit())
     }
 }
 
@@ -129,11 +144,7 @@ impl PartialOrd for Card {
 
 impl Ord for Card {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self.number as u8).cmp(&(other.number as u8)) {
-            std::cmp::Ordering::Less => std::cmp::Ordering::Less,
-            std::cmp::Ordering::Greater => std::cmp::Ordering::Greater,
-            std::cmp::Ordering::Equal => (self.suit as u8).cmp(&(other.suit as u8)),
-        }
+        self.inner.cmp(&other.inner)
     }
 }
 
@@ -167,11 +178,12 @@ impl Hand {
             + self.score_knob(starter)
     }
 
-    fn score_suit(&self, starter: Card, crib: bool) -> u8 {
-        let same_suit = self.cards[1..].iter().all(|c| c.suit == self.cards[0].suit);
+    pub fn score_suit(&self, starter: Card, crib: bool) -> u8 {
+        let card0_suit = self.cards[0].suit();
+        let same_suit = self.cards[1..].iter().all(|c| c.suit() == card0_suit);
 
         if same_suit {
-            if self.cards[0].suit == starter.suit {
+            if card0_suit == starter.suit() {
                 5
             } else if !crib {
                 4
@@ -221,8 +233,9 @@ impl Hand {
         let mut pairs = 0u8;
 
         for i in 0..cards5.len() {
+            let i_num = cards5[i].number();
             for j in i + 1..cards5.len() {
-                if cards5[i].number == cards5[j].number {
+                if i_num == cards5[j].number() {
                     pairs += 1
                 }
             }
@@ -232,11 +245,11 @@ impl Hand {
     }
 
     fn score_straights(&self, cards5: &[Card; 5]) -> u8 {
-        let mut range = cards5[0].number as usize..cards5[0].number as usize;
+        let mut range = cards5[0].number() as usize..cards5[0].number() as usize;
         for (c1, c2) in cards5.iter().copied().tuple_windows() {
-            let new_end = c2.number as usize;
+            let new_end = c2.number() as usize;
 
-            if c1.number as u8 + 1 >= c2.number as u8 {
+            if c1.number() as u8 + 1 >= c2.number() as u8 {
                 range.end = new_end;
             } else if range.end - range.start >= 2 {
                 break;
@@ -249,7 +262,7 @@ impl Hand {
         if straight_size >= 3 {
             let mut count_by_numbers = [0u8; 13];
             for card in cards5.iter() {
-                count_by_numbers[card.number as usize] += 1;
+                count_by_numbers[card.number() as usize] += 1;
             }
 
             straight_size
@@ -263,7 +276,7 @@ impl Hand {
     }
 
     pub fn score_knob(&self, starter: Card) -> u8 {
-        let knob = Card::new(Number::J, starter.suit);
+        let knob = Card::new(Number::J, starter.suit());
         self.cards.iter().contains(&knob) as u8
     }
 }
@@ -357,6 +370,20 @@ impl TryInto<Suit> for char {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn card_bit_packing_number() {
+        for number in Number::VARIANTS.iter().copied() {
+            assert_eq!(number, Card::new(number, Suit::C).number());
+        }
+    }
+
+    #[test]
+    fn card_bit_packing_suit() {
+        for suit in Suit::VARIANTS.iter().copied() {
+            assert_eq!(suit, Card::new(Number::T, suit).suit());
+        }
+    }
 
     #[test]
     fn parse_cards_tests() -> Result<()> {
