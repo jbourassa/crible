@@ -1,6 +1,7 @@
 [workspace]
 members = ["crible-core", "crible-cli"]
 resolver = "2"
+default-members = ["crible-cli"]
 
 [workspace.dependencies]
 anyhow = "1.0.93"

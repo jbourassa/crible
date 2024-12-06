@@ -6,7 +6,7 @@ use itertools::Itertools;
 use crible_core::*;
 
 struct Scores {
-    scores: [Option<(Card, u8)>; 52 - 4],
+    scores: [(Card, u8); 52 - 4],
     len: u8,
     sorted: bool,
 }
@@ -14,7 +14,7 @@ struct Scores {
 impl Scores {
     fn new() -> Self {
         Scores {
-            scores: [None; 52 - 4],
+            scores: [(Card::new(Number::A, Suit::H), 0); 52 - 4],
             len: 0,
             sorted: true,
         }
@@ -22,16 +22,13 @@ impl Scores {
 
     fn push(&mut self, card: Card, score: u8) {
         self.sorted = false;
-        self.scores[self.len as usize] = Some((card, score));
+        self.scores[self.len as usize] = (card, score);
         self.len += 1;
     }
 
     fn sort(&mut self) {
         if !self.sorted {
-            self.scores.sort_by(|a, b| match (a, b) {
-                (Some((_, a)), Some((_, b))) => b.cmp(a),
-                _ => b.cmp(a),
-            });
+            self.scores[0..self.len as usize].sort_by(|(_, a), (_, b)| b.cmp(a));
             self.sorted = true;
         }
     }
@@ -39,21 +36,22 @@ impl Scores {
     fn mean(&self) -> f32 {
         self.scores
             .iter()
-            .map(|entry| entry.map(|(_, score)| score).unwrap_or(0) as u32)
+            .map(|(_, score)| *score as u32)
             .sum::<u32>() as f32
             / self.len as f32
     }
 
     fn iter(&self) -> impl Iterator<Item = (Card, u8)> + '_ {
-        self.scores[0..self.len as usize].iter().map(|o| o.unwrap())
+        self.scores[0..self.len as usize].iter().copied()
     }
 }
 
 fn main() -> Result<()> {
-    let mut deck = Deck::new_shuffled();
+    let input: String = std::env::args().skip(1).collect();
 
-    let input = std::env::var("HAND").expect("Can't parsed HAND env var");
-    let cards = parse_cards(input.as_str())?;
+    let mut deck = Deck::new_shuffled();
+    let mut cards = parse_cards(input.as_str())?;
+    cards.sort();
     deck.remove(&cards);
 
     let mut results: Vec<(Hand, Scores)> = Vec::new();
@@ -82,7 +80,8 @@ fn main() -> Result<()> {
         cards.iter().join(" ")
     )?;
 
-    for (hand, scores) in results {
+    let top_n = 4;
+    for (hand, scores) in results.iter().take(top_n) {
         let mut top_starters: Vec<(u8, Vec<Card>)> = Default::default();
         for (score, chunks) in &scores.iter().chunk_by(|(_, score)| *score) {
             let mut starters = chunks.map(|(card, _)| card).collect::<Vec<_>>();
@@ -102,5 +101,12 @@ fn main() -> Result<()> {
         }
         writeln!(lock, "")?;
     }
+
+    match results.len().saturating_sub(top_n) {
+        0 => {} // no-op
+        1 => println!("... and 1 worse hand"),
+        n => println!("... and {n} worse hands"),
+    }
+
     Ok(())
 }

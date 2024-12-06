@@ -76,7 +76,7 @@ pub enum Number {
 impl Number {
     /// Return the numerical value a value between 1 and 10
     pub fn value(&self) -> u8 {
-        const VALUES: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10];
+        const VALUES: &[u8; Number::VARIANTS.len()] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10];
         VALUES[*self as usize]
     }
 }
