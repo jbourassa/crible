@@ -174,7 +174,7 @@ impl Hand {
         self.score_suit(starter, crib)
             + self.score_fifteens(&cards5)
             + self.score_pairs(&cards5)
-            + self.score_straights(&cards5)
+            + self.score_runs(&cards5)
             + self.score_knob(starter)
     }
 
@@ -244,35 +244,42 @@ impl Hand {
         pairs * 2
     }
 
-    fn score_straights(&self, cards5: &[Card; 5]) -> u8 {
-        let mut range = cards5[0].number() as usize..cards5[0].number() as usize;
-        for (c1, c2) in cards5.iter().copied().tuple_windows() {
-            let new_end = c2.number() as usize;
+    fn score_runs(&self, cards5: &[Card; 5]) -> u8 {
+        let mut run_start = cards5[0].number();
+        let mut run_length: u8 = 1;
 
-            if c1.number() as u8 + 1 >= c2.number() as u8 {
-                range.end = new_end;
-            } else if range.end - range.start >= 2 {
+        for i in 1..cards5.len() {
+            let c1 = cards5[i - 1].number();
+            let c2 = cards5[i].number();
+
+            if c1 as u8 + 1 == c2 as u8 {
+                run_length += 1;
+            } else if c1 == c2 {
+                // Pair: no-op
+            } else if run_length >= 3 {
                 break;
             } else {
-                range = new_end..new_end
+                run_start = c2;
+                run_length = 1;
             }
         }
 
-        let straight_size = (range.end - range.start) as u8 + 1;
-        if straight_size >= 3 {
-            let mut count_by_numbers = [0u8; 13];
-            for card in cards5.iter() {
-                count_by_numbers[card.number() as usize] += 1;
-            }
-
-            straight_size
-                * count_by_numbers[range.start..=range.end]
-                    .iter()
-                    .copied()
-                    .fold(1, |memo, count| memo * count)
-        } else {
-            0
+        if run_length < 3 {
+            return 0;
         }
+
+        let mut count_by_numbers = [0u8; Number::VARIANTS.len()];
+        for card in cards5.iter() {
+            count_by_numbers[card.number() as usize] += 1;
+        }
+
+        let number_range_idx = run_start as usize..run_start as usize + run_length as usize;
+
+        run_length
+            * count_by_numbers[number_range_idx]
+                .iter()
+                .copied()
+                .fold(1, |memo, count| memo * count) as u8
     }
 
     pub fn score_knob(&self, starter: Card) -> u8 {
@@ -464,7 +471,7 @@ mod tests {
         assert_eq!(2, score_hand("1d 2s 6s 8h", "Th")?);
         // Fifteen with 4 cards (+1 pair)
         assert_eq!(4, score_hand("1d 1s 3d 5h ", "8h")?);
-        // Fifteen with 5 cards (+ 5 for straight)
+        // Fifteen with 5 cards (+ 5 for run)
         assert_eq!(7, score_hand("1d 2s 3s 4h", "5h")?);
 
         // Hand all spade
@@ -487,25 +494,28 @@ mod tests {
         assert_eq!(12, score_hand("2s 2h 2d 2c", "3h")?);
         assert_eq!(12, score_hand("2s 2h 2d 3h", "2c")?);
 
-        // 3 straight
+        // 3 run
         assert_eq!(3, score_hand("1s Th Jd Qc", "8h")?);
 
-        // 4 straight
+        // 4 run
         assert_eq!(4, score_hand("1s Th Jd Qc", "Kh")?);
 
-        // 5 straight
+        // 5 run
         assert_eq!(5, score_hand("9s Th Jd Qc", "Kh")?);
 
-        // 2x 3 straight
+        // 2x 3 run, pair in the middle
+        assert_eq!(8, score_hand("8h 9d 9c Tc", "Kh")?);
+
+        // 2x 3 run, pair at the end
         assert_eq!(8, score_hand("1s Th Jd Qc", "Qh")?);
 
-        // 9x 3 straight
+        // 3x 3 run
         assert_eq!(15, score_hand("Qs Th Jd Qc", "Qh")?);
 
-        // 4x 3 straight
+        // 4x 3 run
         assert_eq!(16, score_hand("Th Ts Jd Qc", "Qh")?);
 
-        // Not-straight of 2, starting from 2 (tests for improperly starting straight at Ace (0))
+        // Not-run of 2, starting from 2 (tests for improperly starting run at Ace (0))
         assert_eq!(2, score_hand("2h 3s 9d 8c", "Qh")?);
 
         // Knob
